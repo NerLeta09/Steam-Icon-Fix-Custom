@@ -1,2 +1,6 @@
-# output
+# cache
+__pycache__
 build
+
+# output
+dist

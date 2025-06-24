@@ -74,44 +74,32 @@ def flush_icon_cache():
             except: pass
     os.system("start explorer")
 
-# 主程序入口
-def main(steam_path=None, desktop_path=None):
-    set_color(11)
-    print("========Steam Icon Fix (CLI)========")
-    set_color(6)
-
-    # 手动输入路径
-    steam_path = input("请输入 Steam 图标目录路径（留空则自动检测）: ").strip()
-    desktop_path = input("请输入桌面路径（留空则使用默认桌面）: ").strip()
-
+def fix_icon(steam_path=None, desktop_path=None, start_menu_path=None, cdn="akamai"):
     if not steam_path:
-        steam_path = None  # 后续用注册表自动检测
+        steam_path = get_steam_path()
+        if steam_path:
+            steam_path = os.path.join(steam_path, "steam", "games")
+            logsuc(f"自动检测到 Steam 图标目录: {steam_path}")
+        else:
+            logerr("无法自动检测 Steam 路径，必须手动指定")
+            return False
+
     if not desktop_path:
         desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
 
-    # 默认从注册表获取
-    default_steam_path = get_steam_path()
-    if default_steam_path:
-        steam_path = os.path.join(default_steam_path, "steam", "games")
-        logsuc(f"找到 Steam 图标目录: {steam_path}")
-    else:
-        logwrn("找不到 Steam 注册信息，使用默认路径")
+    if not start_menu_path:
+        start_menu = get_special_folder("CSIDL_PROGRAMS")
+        start_menu_path = os.path.join(start_menu, "Steam") if start_menu else None
 
-    # 获取快捷方式目录
-    start_menu = get_special_folder("CSIDL_PROGRAMS")
-    start_menu_path = os.path.join(start_menu, "Steam") if start_menu else None
-
+    # 查找快捷方式文件
     files = find_url_files([desktop_path, start_menu_path])
     if not files:
         logerr("未找到任何 .url 快捷方式")
-        sys.exit(1)
+        return False
 
-    cdn = input("选择 CDN [0=akamai, 1=cloudflare]（默认0）：").strip()
-    cdn = "cloudflare" if cdn == "1" else "akamai"
-    logui(f"当前使用 CDN: {cdn}")
-
-    icon_url_tpl = f"http://cdn.{cdn}.steamstatic.com/steamcommunity/public/images/apps"
-
+   
+    # 处理每个快捷方式
+    success_count = 0
     for file in files:
         config = configparser.ConfigParser(interpolation=None)
         config.read(file)
@@ -126,6 +114,7 @@ def main(steam_path=None, desktop_path=None):
         if not url.startswith("steam://"):
             continue
 
+        icon_url_tpl = f"http://cdn.{cdn}.steamstatic.com/steamcommunity/public/images/apps"
         appid = url.split("/")[-1]
         icon_filename = os.path.basename(icon_file)
         download_url = f"{icon_url_tpl}/{appid}/{icon_filename}"
@@ -134,28 +123,52 @@ def main(steam_path=None, desktop_path=None):
         print(f"\n处理 {os.path.basename(file)} | AppID: {appid}")
         print(f"- 下载: {download_url}")
         res = download_file(download_url, save_path)
+        
         if res is True:
-            logsuc("- 下载成功并保存")
-
-            # 修改 .url 文件中的 IconFile 路径
+            # 更新快捷方式
             config.set("InternetShortcut", "IconFile", save_path)
-
-            # 保存回文件（注意写回编码）
             with open(file, "w", encoding="utf-8") as f:
                 config.write(f, space_around_delimiters=False)
-            logsuc("- 快捷方式已更新 IconFile 路径")
-            
-        elif isinstance(res, int) and 400 <= res < 600:
-            logwrn(f"- 跳过，HTTP错误: {res}")
+            logsuc("- 快捷方式已更新")
+            success_count += 1
         else:
-            logerr("- 下载失败，终止")
+            logerr(f"- 处理失败 (状态码: {res if isinstance(res, int) else '未知'})")
             if os.path.exists(save_path):
                 os.remove(save_path)
-            sys.exit(1)
 
-    logui("图标处理完成，刷新缓存中...")
-    flush_icon_cache()
-    logsuc("全部完成！")
+    # 最终处理
+    if success_count > 0:
+        logui(f"成功处理 {success_count} 个快捷方式，刷新缓存中...")
+        flush_icon_cache()
+        logsuc("图标修复完成！")
+        return True
+    else:
+        logerr("没有成功修复任何快捷方式")
+        return False
+
+
+def main():
+    set_color(11)
+    print("========Steam Icon Fix (CLI)========")
+    set_color(6)
+
+     # 用户选择 CDN
+    cdn = input("选择 CDN [0=akamai, 1=cloudflare]（默认0）：").strip()
+    cdn = "cloudflare" if cdn == "1" else "akamai"
+    logui(f"当前使用 CDN: {cdn}")
+    
+
+    
+    # 获取用户输入路径
+    steam_path = input("请输入 Steam 图标目录路径（留空则自动检测）: ").strip() or None
+    desktop_path = input("请输入桌面路径（留空则使用默认桌面）: ").strip() or None
+    
+    # 执行修复
+    fix_icon(
+        steam_path=steam_path,
+        desktop_path=desktop_path,
+        start_menu_path=None  # 自动检测
+    )
     os.system("pause")
 
 if __name__ == "__main__":
