@@ -6,7 +6,3 @@
 
 - 自定义Steam路径
 - 自定义快捷方式存放路径
-
-D:/ABOUSC/Game/Steam/steam/games
-
-D:/35325/Desktop/AbousC
